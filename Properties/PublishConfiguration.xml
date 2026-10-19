@@ -48,7 +48,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.3" />
+	<ModVersion Value="0.4" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.0.*" />
 	<!--Dependency for the mod, can be set multiple times-->
@@ -57,11 +57,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<RequiredDLC Value="" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-Fixed: a collection's own cloned buildings no longer show up as duplicate entries in the Assets tab picker.
-
-Fixed: editing a collection's assets (adding/removing a building) while it's attached to a zone now actually rebuilds that zone, so the change spawns instead of silently doing nothing.
-
-Updated the mod's long description.
+Fixed: mass-adding assets to a collection one by one no longer causes repeated, compounding lag. The zone rebuild now runs once per editing session (when you click Done), not once per individual add/remove.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/jph093/ZoneBuilder" />
