@@ -47,7 +47,12 @@ namespace ZoneBuilder.CustomZones
         // eliminating it outright.
         private const int EntriesPerTick = 5;
 
-        private readonly Queue<PendingRequest> m_PendingRequests = new Queue<PendingRequest>();
+        // Keyed by definition.Id, not a plain Queue<PendingRequest> - see
+        // Request's own comment for why. m_PendingRequestOrder preserves
+        // FIFO order across different zones; m_PendingRequestsById is
+        // what actually gets looked up/overwritten/removed.
+        private readonly Dictionary<Guid, PendingRequest> m_PendingRequestsById = new Dictionary<Guid, PendingRequest>();
+        private readonly Queue<Guid> m_PendingRequestOrder = new Queue<Guid>();
         private readonly Queue<Guid> m_PendingRetirements = new Queue<Guid>();
         private CustomZoneBuilder m_Builder;
         private IEnumerator<ZoneBuildProgress> m_ActiveBuild;
@@ -72,9 +77,31 @@ namespace ZoneBuilder.CustomZones
         // Mod.CollectionLibrary) - this system deliberately doesn't reach
         // for that global itself, so a test/debug caller can pass synthetic
         // Collections directly without touching real persisted data.
+        //
+        // Deduplicated by definition.Id, not a blind enqueue - the real
+        // bug this fixes (user feedback, 2026-10-17): editing a Collection
+        // triggers a rebuild of every zone using it (added so an edit
+        // actually takes effect), but a UI action that fires many
+        // individual mutations in a tight loop (e.g. the Assets tab's
+        // "Select All") was calling this once per building, each queueing
+        // its own full, redundant rebuild pass over the whole collection
+        // before the previous one even started - a 321-entry collection
+        // visibly "building" over and over. A second Request for a zone
+        // already waiting in the queue just overwrites its pending
+        // Collections snapshot in place instead of adding another entry;
+        // only the single call that actually populates one zone into the
+        // queue advances the order. A zone whose build is already
+        // *actively* running isn't in this dictionary at all (removed the
+        // moment OnUpdate dequeues it, see below) - a Request for it then
+        // queues a fresh, separate pass for after the current one
+        // finishes, which is correct: real new state arrived mid-build
+        // and still needs picking up, not dropped.
         public void Request(CustomZoneDefinition definition, IEnumerable<Collection> collections)
         {
-            m_PendingRequests.Enqueue(new PendingRequest(definition, collections));
+            if (!m_PendingRequestsById.ContainsKey(definition.Id))
+                m_PendingRequestOrder.Enqueue(definition.Id);
+
+            m_PendingRequestsById[definition.Id] = new PendingRequest(definition, collections);
         }
 
         // Unlike Request above, this is NOT queued - it's a pure,
@@ -107,9 +134,16 @@ namespace ZoneBuilder.CustomZones
             {
                 AdvanceActiveBuild();
             }
-            else if (m_PendingRequests.Count > 0)
+            else if (m_PendingRequestOrder.Count > 0)
             {
-                var request = m_PendingRequests.Dequeue();
+                // Removed from the dictionary here, not just dequeued from
+                // the order - this is what makes the next Request(...) for
+                // this same zone (if one arrives while this build is
+                // actively running) queue a fresh pass instead of silently
+                // overwriting a snapshot nothing will ever read again.
+                var id = m_PendingRequestOrder.Dequeue();
+                var request = m_PendingRequestsById[id];
+                m_PendingRequestsById.Remove(id);
                 m_ActiveBuild = m_Builder.BuildOrRebuildIncremental(request.Definition, request.Collections, EntriesPerTick).GetEnumerator();
                 AdvanceActiveBuild();
             }
