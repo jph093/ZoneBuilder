@@ -227,7 +227,16 @@ const CollectionDetail = ({ collection, buildings, onBack, onAddAssets }: Collec
                             variant="icon"
                             src={Icons.trash}
                             tooltipLabel="Remove from collection"
-                            onSelect={() => trigger(mod.id, "RemoveBuildingFromCollection", collection.id, building.prefabId)}
+                            onSelect={() => {
+                                // FinishEditingCollectionAssets right after -
+                                // that's the one place a zone rebuild actually
+                                // gets triggered now (see CollectionUISystem's
+                                // own comment), and this standalone remove has
+                                // no other "I'm done editing" signal of its own
+                                // the way the Assets-tab picker's "Done" does.
+                                trigger(mod.id, "RemoveBuildingFromCollection", collection.id, building.prefabId);
+                                trigger(mod.id, "FinishEditingCollectionAssets", collection.id);
+                            }}
                         />
                     </div>
                 ))}

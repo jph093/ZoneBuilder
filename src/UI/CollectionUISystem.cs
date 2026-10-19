@@ -136,7 +136,12 @@ namespace ZoneBuilder.UI
             if (!TrySave(collection, "add building to"))
                 return;
 
-            RebuildZonesReferencing(guid, m_BuildRequestSystem);
+            // No rebuild trigger here on purpose - see
+            // OnFinishEditingCollectionAssets's own comment. This only
+            // ever fires from the Assets-tab picker (confirmed: the only
+            // two call sites, AssetsTab.tsx/AssetsTileGrid.tsx, are both
+            // inside pickingForCollectionId mode), which always ends with
+            // a "Done" click there.
             RefreshCollections();
         }
 
@@ -151,11 +156,37 @@ namespace ZoneBuilder.UI
             if (!TrySave(collection, "remove building from"))
                 return;
 
-            RebuildZonesReferencing(guid, m_BuildRequestSystem);
+            // No rebuild trigger here either, same reasoning as
+            // OnAddBuildingToCollection - but this trigger fires from two
+            // different places (the Assets-tab picker AND a direct
+            // remove button in CollectionsTab's own detail view, which
+            // has no "Done" step of its own). The detail view fires
+            // FinishEditingCollectionAssets itself right after this, so
+            // both paths funnel through the same single rebuild trigger
+            // below either way.
             RefreshCollections();
         }
 
-        // Purely informational - the add/remove that got us here already
+        // The one place a rebuild actually gets requested after a
+        // Collection's membership changes - not OnAdd/RemoveBuildingToCollection
+        // themselves (user feedback, 2026-10-18: mass-adding assets one
+        // by one made the Assets tab "grind to a halt, tick by tick").
+        // Each individual add/remove used to trigger its own full rebuild
+        // pass over the whole collection; deduplicating the request queue
+        // (CustomZoneBuildRequestSystem.Request) fixed bursts of adds
+        // firing within the same tick (e.g. "Select All") but not a
+        // steady one-by-one clicking session, where each click lands
+        // after the previous pass already started or finished, still
+        // queueing a fresh full pass every time. Firing once here instead
+        // - whether this is the picker's actual "Done" click, or the
+        // CollectionsTab detail view's standalone remove button treating
+        // its own one-off edit as instantly "finished" too - means
+        // however many individual mutations happened collapse into
+        // exactly one rebuild per affected zone, matching the mod's own
+        // documented "some lag while assigning a large collection is
+        // normal" expectation instead of multiplying it by every click.
+        //
+        // Also informational - the add/remove that got us here already
         // committed (decision #3 in UI_OVERHAUL_PLAN.md: one-click-
         // immediate, no batch confirm step), so there's nothing to cancel.
         // Checks the collection's actual final state, not just "did this
@@ -165,6 +196,8 @@ namespace ZoneBuilder.UI
         {
             if (!Guid.TryParse(collectionId, out var guid) || !Mod.CollectionLibrary.TryGet(guid, out var collection))
                 return;
+
+            RebuildZonesReferencing(guid, m_BuildRequestSystem);
 
             var missing = m_BuildRequestSystem.FindZoneTypesMissingLevel1(collection);
             m_PendingLevel1WarningCollectionId = missing.Count > 0 ? guid : (Guid?)null;
