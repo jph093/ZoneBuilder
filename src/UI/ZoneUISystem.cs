@@ -54,22 +54,17 @@ namespace ZoneBuilder.UI
                 : ZoneBuildProgressEntry.Inactive;
         }
 
-        // The actual bug behind "a zone I created in an earlier session
-        // doesn't show up in the game's zone tool after a restart" -
-        // confirmed via the mod's own log (2026-10-11): a fresh load that
-        // found an existing definition on disk showed zero
-        // CustomZoneBuilder activity. A CustomZoneDefinition (our own
-        // JSON data) persists fine across a restart, but its actual
-        // in-game ZonePrefab clone does not - that's live ECS state tied
-        // to this game session, never serialized into our save file, and
-        // nothing was ever re-requesting it. Without this, a zone built
-        // in an earlier session simply has no prefab in a new one: not
-        // deleted, not hidden, just never rebuilt. Rebuilds every known
-        // zone the same way a create/rename/attach trigger already does -
-        // BuildOrRebuild is explicitly safe to call repeatedly (its own
-        // doc comment: "idempotent... additive"), so looping over every
-        // definition unconditionally isn't a special case needing its own
-        // caution.
+        // Secondary safety net, not the primary fix anymore - see
+        // CustomZoneBuildRequestSystem.OnGamePreload's own comment for the
+        // actual fix for "white box" buildings after a restart (2026-10-21).
+        // That earlier hook is new and unproven at the point this comment
+        // was written - if its assumption (vanilla zone/building prefabs
+        // are queryable that early, before any save is loaded) turns out
+        // to be wrong, this is what keeps zones building at all. Harmless
+        // to run unconditionally even when the preload rebuild already
+        // succeeded - BuildOrRebuild is idempotent, so this is just a
+        // "0 newly cloned" no-op in that case, same as reloading a second
+        // save in one session already looked like in our own logs.
         protected override void OnGameLoaded(Context context)
         {
             base.OnGameLoaded(context);

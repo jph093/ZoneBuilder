@@ -1,5 +1,7 @@
 using ZoneBuilder.Core;
 using ZoneBuilder.CustomZones.GameAdapters;
+using ZoneBuilder.UI;
+using Colossal.Serialization.Entities;
 using Game;
 using System;
 using System.Collections.Generic;
@@ -68,6 +70,67 @@ namespace ZoneBuilder.CustomZones
         {
             base.OnCreate();
             m_Builder = new CustomZoneBuilder(World, new GameBuildingCatalog(World));
+        }
+
+        // The actual fix for "white box" buildings after a restart (found
+        // 2026-10-21, alpha tester report "the entire zone disappeared and
+        // all the buildings turned into white boxes" - confirmed via the
+        // tester's own Player.log, then reproduced on our own machine with
+        // a clean cold-boot test). Root cause, confirmed by reading the
+        // decompiled Game.Serialization.LoadGameSystem/ResolvePrefabsSystem:
+        // LoadGameSystem.OnUpdate runs the ENTIRE Deserialize phase (which
+        // is where ResolvePrefabsSystem permanently marks any building/zone
+        // prefab reference it can't resolve as "obsolete" - a vanilla
+        // mechanism with no later retry anywhere in the base game) to
+        // completion BEFORE it invokes onOnSaveGameLoaded, which is what
+        // GameSystemBase.OnGameLoaded is wired to. Our old approach -
+        // rebuilding everything from ZoneUISystem.OnGameLoaded - ran this
+        // every single time, no exceptions. Since our zone/building
+        // prefabs are ephemeral runtime clones (never serialized into the
+        // save itself - see ZoneUISystem's own history), a save with
+        // already-placed buildings from an earlier session has its
+        // references resolved, and permanently marked obsolete, before our
+        // code ever got a chance to re-clone them - not a race, a
+        // deterministic miss, every first load of a save in a fresh
+        // process.
+        //
+        // OnGamePreload fires per load attempt (not once per process),
+        // before deserialization starts - GameSystemBase wires it straight
+        // from GameManager.instance.onGamePreload, same pattern
+        // Game.AutoSaveSystem itself uses. Rebuilding every zone here,
+        // synchronously (not through the incremental Request() queue this
+        // system normally uses for live, in-game edits), means our clones
+        // already exist by the time ResolvePrefabsSystem runs, so it
+        // resolves already-placed instances successfully instead of
+        // marking them obsolete.
+        //
+        // Deliberately NOT going through the incremental/chunked path here
+        // the way a live collection edit does - this runs during the
+        // loading screen, before the game is interactive, so there's no
+        // per-frame budget to protect the way BuildOrRebuildIncremental's
+        // chunking exists for. Draining each zone's enumerator fully in one
+        // tight loop instead. Confirmed safe in-game (2026-10-21) on a
+        // 402-building zone (the same scale that, synchronously cloned
+        // mid-gameplay rather than during a loading screen, previously
+        // froze the game hard enough to need force-killing, with a
+        // confirmed JobTempAlloc leak) - the loading screen has enough
+        // slack that this doesn't reproduce that freeze.
+        protected override void OnGamePreload(Purpose purpose, GameMode mode)
+        {
+            base.OnGamePreload(purpose, mode);
+
+            if (purpose != Purpose.LoadGame && purpose != Purpose.NewGame)
+                return;
+
+            foreach (var definition in Mod.CustomZoneDefinitionLibrary.GetAll())
+            {
+                foreach (var _ in m_Builder.BuildOrRebuildIncremental(definition, ZoneUISystem.ResolveCollections(definition), EntriesPerTick))
+                {
+                    // Discarding every yielded ZoneBuildProgress - draining
+                    // synchronously on purpose, see this method's own
+                    // comment above.
+                }
+            }
         }
 
         // Safe to call from anywhere, at any time, including OnGameLoaded -
