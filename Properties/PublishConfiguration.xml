@@ -48,7 +48,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.4" />
+	<ModVersion Value="0.5" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.0.*" />
 	<!--Dependency for the mod, can be set multiple times-->
@@ -57,7 +57,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<RequiredDLC Value="" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-Fixed: mass-adding assets to a collection one by one no longer causes repeated, compounding lag. The zone rebuild now runs once per editing session (when you click Done), not once per individual add/remove.
+Fixed an important bug: buildings already grown in a custom zone could come back as white boxes (and their zone's ground color could disappear) after restarting the game and reloading a save. This was a timing issue in how the mod recreates its zones/buildings on load, not something tied to any specific action - it could happen on an otherwise untouched save. If you were affected, this update should resolve it the next time those buildings are rebuilt.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/jph093/ZoneBuilder" />
