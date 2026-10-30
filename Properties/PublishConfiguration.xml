@@ -48,7 +48,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.7" />
+	<ModVersion Value="0.8" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.0.*" />
 	<!--Dependency for the mod, can be set multiple times-->
