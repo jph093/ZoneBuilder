@@ -44,6 +44,22 @@ namespace ZoneBuilder.UI
             CreateTrigger<string, string>("RenameZone", OnRenameZone);
             CreateTrigger<string, string>("AddCollectionToZone", OnAddCollectionToZone);
             CreateTrigger<string, string>("RemoveCollectionFromZone", OnRemoveCollectionFromZone);
+
+            // placedBuildingCount (ZoneUIEntry) is a push-based snapshot,
+            // not a live getter binding like BuildProgress above - it's
+            // only recomputed at the mutation points RefreshZones is
+            // already called from (create/delete/rename/attach/detach,
+            // once on game load). Buildings grow from a zone constantly
+            // during normal play, entirely outside any of those points,
+            // so by the time a player actually opens the delete
+            // confirmation the count can be long stale (seen in testing:
+            // zone, wait for buildings to grow, delete in the same
+            // session with no other zone-tab action in between - still
+            // showed 0). ZonesTab.tsx fires this the moment the trash
+            // icon is first clicked, so the warning that follows reflects
+            // the real, current state rather than whatever it was when
+            // the zone was created/last touched.
+            CreateTrigger("RefreshZoneBuildingCounts", RefreshZones);
         }
 
         private ZoneBuildProgressEntry GetBuildProgress()
@@ -71,6 +87,14 @@ namespace ZoneBuilder.UI
 
             foreach (var definition in Mod.CustomZoneDefinitionLibrary.GetAll())
                 m_BuildRequestSystem.Request(definition, ResolveCollections(definition));
+
+            // m_Zones was populated once at OnCreate, before any save
+            // existed, so every zone's placedBuildingCount was 0 - refresh
+            // now that the save's actual building instances are loaded, so
+            // the delete-confirmation warning (ZonesTab.tsx) is accurate
+            // for a zone that already has grown buildings from a previous
+            // session.
+            RefreshZones();
         }
 
         private void OnCreateZone(string id, string name, string baseZoneType, string region)
@@ -238,7 +262,7 @@ namespace ZoneBuilder.UI
             }
         }
 
-        private static ZoneUIEntry[] GetEntries()
+        private ZoneUIEntry[] GetEntries()
         {
             return Mod.CustomZoneDefinitionLibrary.GetAll()
                 .Select(z => new ZoneUIEntry(
@@ -246,7 +270,8 @@ namespace ZoneBuilder.UI
                     z.Name,
                     z.BaseZoneType.ToString(),
                     z.Region.ToString(),
-                    z.CollectionIds.Select(id => id.ToString()).ToArray()))
+                    z.CollectionIds.Select(id => id.ToString()).ToArray(),
+                    m_BuildRequestSystem.CountPlacedInstances(z.Id)))
                 .ToArray();
         }
     }

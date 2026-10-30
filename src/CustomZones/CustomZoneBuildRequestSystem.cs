@@ -183,6 +183,14 @@ namespace ZoneBuilder.CustomZones
             return m_Builder.HasPlacedInstances(zoneDefinitionId, templatePrefabId);
         }
 
+        // Same "pure, immediate read" reasoning - see CustomZoneBuilder.
+        // CountPlacedInstances's own comment. Backs ZoneUISystem's
+        // pre-deletion warning.
+        public int CountPlacedInstances(Guid zoneDefinitionId)
+        {
+            return m_Builder.CountPlacedInstances(zoneDefinitionId);
+        }
+
         // Entry point for the "Clean Up Orphaned Buildings" settings
         // button (Setting.cs) - called directly via
         // World.DefaultGameObjectInjectionWorld.GetExistingSystemManaged,

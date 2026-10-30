@@ -53,12 +53,14 @@ namespace ZoneBuilder.CustomZones
         private readonly GameBuildingCatalog m_Catalog;
         private readonly GameZonePrefabResolver m_ZoneResolver;
         private readonly ZoneToolSystem m_ZoneToolSystem;
+        private readonly ToolSystem m_ToolSystem;
 
         public CustomZoneBuilder(World world, GameBuildingCatalog catalog)
         {
             m_PrefabSystem = world.GetOrCreateSystemManaged<PrefabSystem>();
             m_PrefabUISystem = world.GetOrCreateSystemManaged<PrefabUISystem>();
             m_ZoneToolSystem = world.GetOrCreateSystemManaged<ZoneToolSystem>();
+            m_ToolSystem = world.GetOrCreateSystemManaged<ToolSystem>();
             m_EntityManager = world.EntityManager;
             m_ZoneCloner = new ZonePrefabCloner(m_PrefabSystem);
             m_BuildingLinker = new SpawnableBuildingZoneLinker(m_PrefabSystem);
@@ -345,15 +347,17 @@ namespace ZoneBuilder.CustomZones
         // retire, a no-op not an error. Called via
         // CustomZoneBuildRequestSystem.RequestRetirement, not directly -
         // same UpdateBefore<_, PrefabSystem> timing BuildOrRebuild already
-        // relies on.
-        public void RetireZone(Guid definitionId)
+        // relies on. Returns the number of already-placed building
+        // instances removed along with the zone (see the comment further
+        // down for why that's now part of this, not left standing).
+        public int RetireZone(Guid definitionId)
         {
             var internalZoneName = GetInternalZoneName(definitionId);
 
             if (!m_ZoneResolver.TryFindByName(internalZoneName, out var zone, out var zoneEntity))
             {
                 Mod.log.Warn($"[CustomZoneBuilder] RetireZone: no built prefab found for '{internalZoneName}' - nothing to retire.");
-                return;
+                return 0;
             }
 
             // First crash found in-game (2026-10-11): deleting a zone while
@@ -375,29 +379,122 @@ namespace ZoneBuilder.CustomZones
                 Mod.log.Info($"[CustomZoneBuilder] RetireZone: '{zone.name}' was the zone tool's active selection - cleared it before removing the prefab.");
             }
 
+            // Second, independent stale-selection surface (found in-game,
+            // 2026-10-30, alpha tester report: "spawned buildings, they
+            // became condemned, HUD disappeared, game ground to a halt"):
+            // Game.Tools.ToolSystem.selected - the entity behind the
+            // info/inspect panel (Game.UI.InGame.SelectedInfoUISystem),
+            // completely separate from the zone tool's own brush selection
+            // above. Confirmed via decompiled source
+            // (D:\CS2-Decompiled\Game.UI\NameSystem.cs, GetId): naming any
+            // currently-SELECTED building redirects through
+            // SpawnableBuildingData.m_ZonePrefab to name the building's
+            // ZONE, not the building itself, then calls
+            // PrefabSystem.GetObsoleteID on it if PrefabSystem.TryGetPrefab
+            // fails. RemovePrefab (below) sets that zone's own
+            // PrefabData.m_Index to a sentinel (-1000000000) reserved for
+            // "just removed, never meant to be looked up again" - a
+            // completely different encoding than GetObsoleteID's small
+            // negative "unresolved save reference" indices, so
+            // GetObsoleteID throws ArgumentOutOfRangeException. Unlike the
+            // native Burst read this method already protects against
+            // (RemovePrefab's own comment below), this is managed code the
+            // game catches and logs as [CRITICAL] rather than crashing
+            // outright - but it throws on literally every UI update tick
+            // for as long as the stale entity stays selected, which is
+            // exactly why the HUD stops updating (SelectedInfoUISystem's
+            // own section can never finish writing) and the game grinds to
+            // a halt (a full managed exception + stack-trace log every
+            // single frame, forever, is expensive). Same fix shape as the
+            // zone tool clear above - deselect first, unconditionally,
+            // rather than trying to prove the current selection really is
+            // one of this zone's own buildings; retiring a zone is already
+            // a deliberate, infrequent action behind its own confirmation
+            // dialog (ZonesTab.tsx), so an incidental, harmless deselect of
+            // something unrelated is a fine trade against this.
+            if (m_ToolSystem.selected != Entity.Null)
+            {
+                m_ToolSystem.selected = Entity.Null;
+                Mod.log.Info($"[CustomZoneBuilder] RetireZone: '{zone.name}' - cleared the current world selection before removing the prefab, in case it pointed at this zone or one of its buildings.");
+            }
+
             var removed = m_PrefabSystem.RemovePrefab(zone);
             Mod.log.Info($"[CustomZoneBuilder] RetireZone: '{zone.name}' found (Entity {zoneEntity.Index}:{zoneEntity.Version}), PrefabSystem.RemovePrefab returned {removed}.");
 
             // REVERTED (2026-10-12) - a prior version of this method also
-            // called PrefabSystem.RemovePrefab on every building cloned
-            // for this zone (found via FindBuildingsByNamePrefix), to stop
-            // them from accumulating as dead, orphaned prefabs across
-            // repeated create/retire cycles. Confirmed in-game to corrupt
-            // a save: any building instance already placed/grown from one
-            // of those prefabs in an EARLIER session has its reference
-            // baked into the save file by name - on a later load, with
-            // the prefab gone, the game logs "Unknown prefab ID" for each
-            // one and renders it as a white box (and loading dozens of
-            // them appears to be what caused a multi-minute freeze on
-            // load). Zone removal itself was independently confirmed safe
-            // this way (painted cells use a separate, zone-specific
-            // index, unrelated to PrefabSystem's own bookkeeping) -
-            // buildings are not the same case: there's no equivalent
-            // independent index - an already-placed building genuinely
-            // depends on its prefab staying registered. Back to leaving a
-            // retired zone's buildings alone entirely - orphaned-prefab
-            // accumulation is a real but minor cost (memory/clutter over
-            // a long session) next to this. See DECISIONS.md.
+            // called PrefabSystem.RemovePrefab on every building PREFAB
+            // cloned for this zone (found via FindBuildingsByNamePrefix),
+            // to stop them from accumulating as dead, orphaned prefabs
+            // across repeated create/retire cycles. Confirmed in-game to
+            // corrupt a save: any building instance already placed/grown
+            // from one of those PREFABS in an EARLIER session has its
+            // reference baked into the save file by name - on a later
+            // load, with the prefab gone, the game logs "Unknown prefab
+            // ID" for each one and renders it as a white box. Zone removal
+            // itself was independently confirmed safe this way (painted
+            // cells use a separate, zone-specific index, unrelated to
+            // PrefabSystem's own bookkeeping) - PREFABS are not the same
+            // case: an already-placed building genuinely depends on its
+            // prefab staying registered to survive a save/reload. That
+            // part of this decision stands - building PREFABS are still
+            // never removed here.
+            //
+            // What changed (2026-11-01, real CTD confirmed in-game and
+            // reproduced on request): removing ONLY the zone prefab, while
+            // leaving its already-placed building INSTANCES standing,
+            // turned out to be unsafe for a reason specific to THIS
+            // session, not the white-box case above - PrefabSystem.
+            // RemovePrefab (decompiled) only tags the zone Deleted, never
+            // destroys the entity, and Game.Prefabs.ZoneSystem's own
+            // Deleted-handling (decompiled) only clears its lookup-table
+            // slot, not the entity either - so the zone prefab lingers
+            // forever, Deleted, still fully readable. The crash: Game.
+            // Prefabs.BuildingInitializeSystem (decompiled) reads a
+            // building's own zone link via a raw ComponentLookup<ZoneData>
+            // indexer with no Deleted/existence check at all - a building
+            // still pointing at a permanently-Deleted zone and later
+            // re-touched (confirmed repro: bulldozing it) hits that
+            // unchecked native read and crashes with no managed stack
+            // trace. Five earlier attempts at hiding a zone from the tool
+            // WITHOUT deleting it (active=false, UIGroupElement removal,
+            // UpdateAvailable(), Locked - see this method's own "Sixth
+            // attempt" history above) all failed to actually work, so
+            // RemovePrefab's Deleted-tag isn't optional - the only way to
+            // close the gap is to make sure no building is ever left
+            // standing with a reference to a Deleted zone. Removing the
+            // already-PLACED INSTANCES (not their prefabs - those still
+            // follow the reasoning above, and stay registered) does
+            // exactly that: nothing is left to crash on, and - unlike the
+            // reverted prefab-removal attempt - nothing about this
+            // affects a FUTURE save load, since there's no "Unknown
+            // prefab ID" involved, just real buildings bulldozed now,
+            // same mechanism the game's own bulldoze tool uses (Deleted
+            // tag on the instance). See DECISIONS.md.
+            var instances = m_Catalog.FindPlacedInstancesByNamePrefix(GetInternalBuildingNamePrefix(internalZoneName)).ToList();
+            foreach (var instance in instances)
+                m_EntityManager.AddComponent<Deleted>(instance);
+
+            if (instances.Count > 0)
+                Mod.log.Info($"[CustomZoneBuilder] RetireZone: '{zone.name}' - also removed {instances.Count} already-placed building instance(s) grown from it.");
+
+            return instances.Count;
+        }
+
+        // Pure, immediate read (same reasoning as HasPlacedInstances/
+        // FindZoneTypesMissingLevel1's own comments) - backs the
+        // pre-deletion warning shown before RetireZone actually runs
+        // (deletion itself is queued, see CustomZoneBuildRequestSystem.
+        // RequestRetirement, so this can't just read RetireZone's own
+        // return value - it needs to answer the question before that
+        // ever happens). Works purely by name-prefix matching against
+        // whatever's currently registered, so it doesn't need the zone
+        // prefab to resolve first - safe to call for a zone that was
+        // never successfully built (returns 0, same as "nothing to
+        // retire").
+        public int CountPlacedInstances(Guid definitionId)
+        {
+            var internalZoneName = GetInternalZoneName(definitionId);
+            return m_Catalog.FindPlacedInstancesByNamePrefix(GetInternalBuildingNamePrefix(internalZoneName)).Count();
         }
 
         // Not part of BuildOrRebuildIncremental's own flow - CollectionUISystem

@@ -20,6 +20,15 @@ interface ZoneEntry {
     baseZoneType: string;
     region: string;
     collectionIds: string[];
+    // Mirrors UI.ZoneUIEntry.PlacedBuildingCount - how many buildings
+    // grown from this zone already exist on the map. Deleting a zone
+    // now also removes these (CustomZoneBuilder.RetireZone, added to fix
+    // a crash-to-desktop when a stale reference to a fully-removed zone
+    // prefab was later read - see RetireZone's own comment), so this
+    // number drives the stronger delete warning below: it's real,
+    // player-visible progress being destroyed, not just this mod's own
+    // bookkeeping.
+    placedBuildingCount: number;
 }
 
 // Mirrors UI.ZoneBuildProgressEntry (src/UI/ZoneBuildProgressEntry.cs) -
@@ -55,6 +64,24 @@ const BASE_ZONE_TYPES: string[] = [...ZONE_TYPE_ORDER];
 // ZoneUISystem.OnCreateZone's comment for why.
 type ZoneRegion = "NorthAmerica" | "Europe";
 const REGION_LABELS: Record<ZoneRegion, string> = { NorthAmerica: "NA", Europe: "EU" };
+
+// This UI engine's text rendering drops the LEADING whitespace of a
+// text child that immediately follows a `{...}` expression child (found
+// in-game, 2026-10-30: "already has {count} building{suffix} grown"
+// rendered as "already has 3buildingsgrown" - every space that came
+// right after an expression vanished, every space before one survived).
+// JSX compiles `text {expr} more text` into separate children
+// ["text ", expr, " more text"], and this engine apparently trims each
+// text child's own leading whitespace independently rather than treating
+// them as one run - so any dynamic sentence with more than one `{...}`
+// has to be built as a single plain string (one text child, nothing for
+// the engine to trim) rather than interleaved JSX expressions. These two
+// helpers exist so every zone-delete message goes through that single-
+// string path instead of silently reintroducing the bug.
+const pluralize = (count: number, singular: string, plural: string): string => (count === 1 ? singular : plural);
+
+const buildingLossWarning = (zoneName: string, count: number): string =>
+    `Warning: deleting "${zoneName}" will also delete the ${count} ${pluralize(count, "building", "buildings")} already grown from it. This cannot be undone.`;
 
 const Zones$ = bindValue<ZoneEntry[]>(mod.id, "Zones", []);
 const Collections$ = bindValue<CollectionEntry[]>(mod.id, "Collections", []);
@@ -126,6 +153,10 @@ const ZonesList = ({ zones, onSelect }: ZonesListProps) => {
     const [createError, setCreateError] = useState(false);
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
+    const cancelDelete = () => {
+        setConfirmingDeleteId(null);
+    };
+
     const onCreate = () => {
         const name = newName.trim();
         if (!name || newBaseZoneType === ANY) {
@@ -156,31 +187,64 @@ const ZonesList = ({ zones, onSelect }: ZonesListProps) => {
                         className={classNames(confirmingDeleteId === zone.id ? rowStyles.confirmRow : rowStyles.row, rowStyles.cardRow)}
                     >
                         {confirmingDeleteId === zone.id ? (
-                            <>
-                                <span className={rowStyles.confirmText}>
-                                    Delete "{zone.name}"? Its collections remain available for other zones.
-                                </span>
-                                <div className={rowStyles.confirmActions}>
-                                    <TextButton onSelect={() => setConfirmingDeleteId(null)}>Cancel</TextButton>
-                                    <Button
-                                        variant="icon"
-                                        src={Icons.trash}
-                                        tooltipLabel="Confirm delete"
-                                        onSelect={() => {
-                                            trigger(mod.id, "DeleteZone", zone.id);
-                                            setConfirmingDeleteId(null);
-                                        }}
-                                    />
-                                </div>
-                            </>
+                            zone.placedBuildingCount > 0 ? (
+                                <>
+                                    <span className={rowStyles.warningText}>
+                                        {buildingLossWarning(zone.name, zone.placedBuildingCount)}
+                                    </span>
+                                    <div className={rowStyles.confirmActions}>
+                                        <TextButton onSelect={cancelDelete}>Cancel</TextButton>
+                                        <TextButton
+                                            className={rowStyles.dangerButton}
+                                            onSelect={() => {
+                                                trigger(mod.id, "DeleteZone", zone.id);
+                                                cancelDelete();
+                                            }}
+                                        >
+                                            {pluralize(zone.placedBuildingCount, "Delete zone and building", "Delete zone and buildings")}
+                                        </TextButton>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <span className={rowStyles.confirmText}>
+                                        {`Delete "${zone.name}"? Its collections remain available for other zones.`}
+                                    </span>
+                                    <div className={rowStyles.confirmActions}>
+                                        <TextButton onSelect={cancelDelete}>Cancel</TextButton>
+                                        <Button
+                                            variant="icon"
+                                            src={Icons.trash}
+                                            tooltipLabel="Confirm delete"
+                                            onSelect={() => {
+                                                trigger(mod.id, "DeleteZone", zone.id);
+                                                cancelDelete();
+                                            }}
+                                        />
+                                    </div>
+                                </>
+                            )
                         ) : (
                             <>
                                 <span onClick={() => onSelect(zone.id)} className={classNames(rowStyles.primary, rowStyles.clickable)}>
-                                    {zone.name} ({formatZoneType(zone.baseZoneType)}, {REGION_LABELS[zone.region as ZoneRegion] ?? zone.region}, {zone.collectionIds.length} collection{zone.collectionIds.length === 1 ? "" : "s"})
+                                    {`${zone.name} (${formatZoneType(zone.baseZoneType)}, ${REGION_LABELS[zone.region as ZoneRegion] ?? zone.region}, ${zone.collectionIds.length} ${pluralize(zone.collectionIds.length, "collection", "collections")})`}
                                 </span>
                                 <div className={rowStyles.actions}>
                                     <Button variant="icon" src={Icons.pencil} tooltipLabel="Edit" onSelect={() => onSelect(zone.id)} />
-                                    <Button variant="icon" src={Icons.trash} tooltipLabel="Delete" onSelect={() => setConfirmingDeleteId(zone.id)} />
+                                    <Button
+                                        variant="icon"
+                                        src={Icons.trash}
+                                        tooltipLabel="Delete"
+                                        onSelect={() => {
+                                            // zone.placedBuildingCount can be stale (see
+                                            // ZoneUISystem's RefreshZoneBuildingCounts
+                                            // comment) - force a fresh read before showing
+                                            // the confirmation, so the hard warning below
+                                            // is never computed from old data.
+                                            trigger(mod.id, "RefreshZoneBuildingCounts");
+                                            setConfirmingDeleteId(zone.id);
+                                        }}
+                                    />
                                 </div>
                             </>
                         )}

@@ -99,11 +99,44 @@
     }
 }
 
+// display: block (not the <span>'s natural inline) - found in-game,
+// 2026-10-30: a long .warningText message rendered as one unwrapped
+// line, clipped at the panel edge, instead of wrapping at width: 100%.
+// This engine may not blockify an inline flex child the way a spec
+// browser does, so width/wrapping need an unambiguous block box to
+// apply to, not just flex-item sizing rules. Added here too even though
+// .confirmText's own text has always been short enough to never
+// actually need to wrap - same risk, cheap to close now that it's found.
 .confirmText {
+    display: block;
     font-size: 13px;
     width: 100%;
     white-space: normal;
     word-break: break-word;
+}
+
+// Stronger variant of .confirmText for a deletion that also destroys
+// real player progress (e.g. a zone's already-grown buildings) rather
+// than just the mod's own bookkeeping - see ZonesTab.tsx's delete flow.
+// Same --negativeColor token as .errorText, bold so it reads as a
+// warning, not a validation nitpick, at a glance.
+.warningText {
+    display: block;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--negativeColor);
+    width: 100%;
+    white-space: normal;
+    word-break: break-word;
+}
+
+// TextButton extra class for the single destructive confirm next to
+// .warningText above - same --negativeColor token, so the one
+// irreversible action in the row visually matches the warning it
+// follows instead of looking like a plain Cancel/Confirm pair.
+.dangerButton {
+    color: var(--negativeColor);
+    border-color: var(--negativeColor);
 }
 
 .confirmActions {
