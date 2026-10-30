@@ -27,7 +27,7 @@ A collection is an "asset basket". Create a collection (example: US Rust Belt), 
 
 ### Zones tab
 
-These are your zones - each zone you create here will spawn a real zone in the game's zone tab. You will need to classify if this zone is NA or EU, and the zone's base type (Residential Low/Med/High/Mixed Use/Low Rent, Commercial Low/High, Office Low/High, Industrial). Once your zone is created, it is selectable and paintable in-game, just like any other zone. **But wait!** Zones need collections to spawn - make sure you edit your zone, assign it a collection, or multiple collections should you wish, and save. From there - paint away, and watch your chosen assets spawn!
+These are your zones - each zone you create here will spawn a real zone in the game's zone tab. You will need to classify if this zone is NA or EU, and the zone's base type (Residential Low/Med/High/Mixed Use/Low Rent/Row Housing, Commercial Low/High, Office Low/High, Industrial). Once your zone is created, it is selectable and paintable in-game, just like any other zone. **But wait!** Zones need collections to spawn - make sure you edit your zone, assign it a collection, or multiple collections should you wish, and save. From there - paint away, and watch your chosen assets spawn!
 
 Known quirks and limitations:
 
@@ -48,7 +48,7 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.6" />
+	<ModVersion Value="0.7" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.0.*" />
 	<!--Dependency for the mod, can be set multiple times-->
@@ -57,13 +57,13 @@ I strongly believe in being 100% upfront about when and how AI is used, and wher
 	<RequiredDLC Value="" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-New zone base types: Mixed Use and Low Rent are now their own choices alongside Residential Low/Medium/High, instead of buildings from those categories showing up unexpectedly inside a Medium or High density zone.
+New zone base type: Row Housing is now its own choice alongside Residential Low/Medium/High/Mixed Use/Low Rent, instead of row-house buildings showing up unexpectedly inside a plain Medium Density zone.
 
-Zone creation now always uses a real vanilla NA/EU zone as its base - it will never pick up a zone added by another mod or asset pack by mistake.
+Fixed Low Rent never actually being detected - Low Rent buildings and zones now correctly show up under their own filter and base type instead of blending into a regular density bucket.
 
-Removing a building from a collection now warns you if that building is already grown somewhere in a zone using it, so you know before closing the game that it would turn into a white box next load. A new "Clean Up Orphaned Buildings" button (Settings > Zone Builder > Maintenance) can remove any building that's already become unrecoverable this way - the lot stays zoned and can regrow from the zone's current list.
+Deleting a zone that already has buildings grown from it now warns you first and tells you how many buildings would be deleted too, since this can't be undone.
 
-Assets tab filters (zone, level, width, depth, pack) are now multi-select, so you can narrow by more than one value at once. Removed the unused "District Themes" checkbox from settings. Fixed collection edits from the Collections tab's own remove button triggering a full zone rebuild per click instead of once when you're done.
+Fixed a crash/freeze that could happen if you deleted a zone while one of its buildings (or the zone itself) was selected in the info panel - the game would grind to a halt instead of just removing the zone.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/jph093/ZoneBuilder" />
