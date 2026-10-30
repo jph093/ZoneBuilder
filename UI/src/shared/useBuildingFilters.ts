@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { ANY } from "shared/FilterDropdown";
 import { sortZoneTypes } from "shared/zoneTypeLabels";
 
 export interface BuildingEntry {
@@ -22,13 +21,25 @@ export interface BuildingEntry {
 // machinery, two different jobs - picking vs. browsing) - extracted out
 // of the original BuildingPicker.tsx so both consumers stay in sync
 // instead of carrying two copies of the same filtering logic.
+//
+// Every filter is a string[], not a single value (2026-10-26, user
+// feedback: narrowing to e.g. Low AND Medium density in one pass, not
+// five separate browsing sessions one density at a time) - empty array
+// means "no filter on this field," the same meaning FilterDropdown's
+// ANY sentinel used to carry for the single-select version. Level/width/
+// depth are compared as strings on both sides (matching
+// MultiFilterDropdown's own string-only options) rather than parsing
+// back to number, since nothing here needs numeric comparison, only
+// equality. Array, not Set - see MultiFilterDropdown's own comment for
+// why (a Set-copying bug, confirmed in-game, silently dropped every
+// value but the most recently added).
 export function useBuildingFilters(buildings: BuildingEntry[]) {
     const [nameFilter, setNameFilter] = useState("");
-    const [zoneTypeFilter, setZoneTypeFilter] = useState(ANY);
-    const [levelFilter, setLevelFilter] = useState(ANY);
-    const [lotWidthFilter, setLotWidthFilter] = useState(ANY);
-    const [lotDepthFilter, setLotDepthFilter] = useState(ANY);
-    const [assetPackFilter, setAssetPackFilter] = useState(ANY);
+    const [zoneTypeFilter, setZoneTypeFilter] = useState<string[]>([]);
+    const [levelFilter, setLevelFilter] = useState<string[]>([]);
+    const [lotWidthFilter, setLotWidthFilter] = useState<string[]>([]);
+    const [lotDepthFilter, setLotDepthFilter] = useState<string[]>([]);
+    const [assetPackFilter, setAssetPackFilter] = useState<string[]>([]);
 
     const zoneTypes = useMemo(() => sortZoneTypes(distinctStrings(buildings.map((b) => b.zoneType))), [buildings]);
     const levels = useMemo(() => distinctNumbers(buildings.map((b) => b.level)).map(String), [buildings]);
@@ -40,22 +51,22 @@ export function useBuildingFilters(buildings: BuildingEntry[]) {
         const name = nameFilter.trim().toLowerCase();
         return buildings.filter((b) => {
             if (name && !b.prefabId.toLowerCase().includes(name)) return false;
-            if (zoneTypeFilter && b.zoneType !== zoneTypeFilter) return false;
-            if (levelFilter && b.level !== Number(levelFilter)) return false;
-            if (lotWidthFilter && b.lotWidth !== Number(lotWidthFilter)) return false;
-            if (lotDepthFilter && b.lotDepth !== Number(lotDepthFilter)) return false;
-            if (assetPackFilter && !b.assetPackIds.includes(assetPackFilter)) return false;
+            if (zoneTypeFilter.length > 0 && !zoneTypeFilter.includes(b.zoneType)) return false;
+            if (levelFilter.length > 0 && !levelFilter.includes(String(b.level))) return false;
+            if (lotWidthFilter.length > 0 && !lotWidthFilter.includes(String(b.lotWidth))) return false;
+            if (lotDepthFilter.length > 0 && !lotDepthFilter.includes(String(b.lotDepth))) return false;
+            if (assetPackFilter.length > 0 && !b.assetPackIds.some((id) => assetPackFilter.includes(id))) return false;
             return true;
         });
     }, [buildings, nameFilter, zoneTypeFilter, levelFilter, lotWidthFilter, lotDepthFilter, assetPackFilter]);
 
     const clearFilters = () => {
         setNameFilter("");
-        setZoneTypeFilter(ANY);
-        setLevelFilter(ANY);
-        setLotWidthFilter(ANY);
-        setLotDepthFilter(ANY);
-        setAssetPackFilter(ANY);
+        setZoneTypeFilter([]);
+        setLevelFilter([]);
+        setLotWidthFilter([]);
+        setLotDepthFilter([]);
+        setAssetPackFilter([]);
     };
 
     return {

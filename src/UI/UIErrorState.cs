@@ -1,6 +1,23 @@
+using Colossal.UI.Binding;
+
 namespace ZoneBuilder.UI
 {
-    public readonly struct UIErrorEntry
+    // IJsonWritable with a hand-written camelCase Write() - same reasoning
+    // as ZoneBuildProgressEntry/CollectionLevel1WarningEntry's own comments.
+    // This type used to be a bare struct with public PascalCase properties,
+    // relying on GenericUIWriter<T>'s reflection fallback (ExtendedUISystemBase.
+    // CreateBinding<T>(key, Func<T>) always uses that writer) - which writes
+    // property names VERBATIM, so the client actually received "Active"/
+    // "Message" while ShellFeature.tsx's UIErrorEntry interface (and every
+    // consumer) reads lowercase "active"/"message". Confirmed in-game
+    // (2026-10-26): WarnIfAlreadyBuilt's own diagnostic logging proved the
+    // backend was correctly detecting placed instances and calling Report(),
+    // yet no banner ever appeared - the only other getter-bound types in
+    // this codebase both avoid this exact trap by implementing IJsonWritable
+    // themselves, which this one never did. Likely means the banner never
+    // worked for ANY failure (including the older TrySave/TryDelete disk-
+    // full/permission paths), just never noticed since those are rare.
+    public readonly struct UIErrorEntry : IJsonWritable
     {
         public bool Active { get; }
         public string Message { get; }
@@ -12,6 +29,16 @@ namespace ZoneBuilder.UI
         }
 
         public static readonly UIErrorEntry Inactive = new UIErrorEntry(false, "");
+
+        public void Write(IJsonWriter writer)
+        {
+            writer.TypeBegin(GetType().FullName);
+            writer.PropertyName("active");
+            writer.Write(Active);
+            writer.PropertyName("message");
+            writer.Write(Message);
+            writer.TypeEnd();
+        }
     }
 
     // Phase 5 (UI_UPGRADE_GUIDE.md) - minimal failure surfacing. Shared

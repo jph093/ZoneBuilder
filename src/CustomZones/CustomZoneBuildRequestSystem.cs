@@ -176,6 +176,28 @@ namespace ZoneBuilder.CustomZones
             return m_Builder.FindZoneTypesMissingLevel1(collection);
         }
 
+        // Same "pure, immediate read" reasoning as FindZoneTypesMissingLevel1
+        // above - see CustomZoneBuilder.HasPlacedInstances's own comment.
+        public bool HasPlacedInstances(Guid zoneDefinitionId, string templatePrefabId)
+        {
+            return m_Builder.HasPlacedInstances(zoneDefinitionId, templatePrefabId);
+        }
+
+        // Entry point for the "Clean Up Orphaned Buildings" settings
+        // button (Setting.cs) - called directly via
+        // World.DefaultGameObjectInjectionWorld.GetExistingSystemManaged,
+        // not queued through Request, same reasoning as HasPlacedInstances
+        // above. Logs its own result since the Settings panel is a
+        // separate UI context from the shell this system's other
+        // bindings feed - Setting.cs surfaces the same count back to the
+        // player via UIErrorState once it gets this call's return value.
+        public int CleanUpOrphanedBuildings()
+        {
+            var removed = m_Builder.CleanUpOrphanedBuildings();
+            Mod.log.Info($"[CustomZoneBuildRequestSystem] Cleaned up {removed} orphaned ZoneBuilder building(s).");
+            return removed;
+        }
+
         // Same "safe to call from anywhere, actually runs later at the
         // right moment" contract as Request above - deactivates (doesn't
         // remove) a deleted definition's already-built zone prefab, see

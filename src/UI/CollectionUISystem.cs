@@ -156,6 +156,8 @@ namespace ZoneBuilder.UI
             if (!TrySave(collection, "remove building from"))
                 return;
 
+            WarnIfAlreadyBuilt(guid, prefabId);
+
             // No rebuild trigger here either, same reasoning as
             // OnAddBuildingToCollection - but this trigger fires from two
             // different places (the Assets-tab picker AND a direct
@@ -165,6 +167,46 @@ namespace ZoneBuilder.UI
             // both paths funnel through the same single rebuild trigger
             // below either way.
             RefreshCollections();
+        }
+
+        // Interim mitigation for a real bug (2026-10-21/26: a building
+        // already grown in the city turns into a white box the next time
+        // the game loads, once nothing left recreates its clone - see
+        // CustomZoneBuilder.HasPlacedInstances's own comment for the full
+        // mechanism and why a proper fix needs more than this). The
+        // removal above already committed by the time this runs - same
+        // "informational, not a confirm/cancel gate" reasoning as
+        // CollectionLevel1WarningEntry - so this only warns, it can't
+        // undo anything. Checks every zone CURRENTLY referencing this
+        // collection, not just one - a collection can be shared across
+        // zones, and the same removed building could be grown under more
+        // than one of them.
+        private void WarnIfAlreadyBuilt(Guid collectionId, string prefabId)
+        {
+            var referencingZones = Mod.CustomZoneDefinitionLibrary.GetAll()
+                .Where(z => z.CollectionIds.Contains(collectionId))
+                .ToArray();
+
+            var affectedZoneNames = referencingZones
+                .Where(z => m_BuildRequestSystem.HasPlacedInstances(z.Id, prefabId))
+                .Select(z => z.Name)
+                .ToArray();
+
+            // Temporary diagnostic (2026-10-26) - "no banner" was reported
+            // in UAT with no way to tell whether that's this check
+            // correctly finding nothing, or HasPlacedInstances itself
+            // returning a false negative. Logs every check, not just
+            // failures, so a silent no-op (e.g. no zone referencing this
+            // collection at all) is distinguishable too.
+            Mod.log.Info($"[CollectionUISystem] WarnIfAlreadyBuilt('{prefabId}'): {referencingZones.Length} zone(s) reference this collection, {affectedZoneNames.Length} report a placed instance of it.");
+
+            if (affectedZoneNames.Length == 0)
+                return;
+
+            UIErrorState.Report(
+                $"'{prefabId}' is already grown somewhere in '{string.Join("', '", affectedZoneNames)}'. " +
+                "Removing it from this collection won't affect those buildings right now, but they'll turn into white boxes the next time you load this save, since nothing will recreate them anymore. " +
+                "Add it back to this collection (or another one attached to the same zone) to prevent that.");
         }
 
         // The one place a rebuild actually gets requested after a

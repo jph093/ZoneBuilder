@@ -29,6 +29,7 @@ namespace ZoneBuilder.CustomZones.GameAdapters
         private readonly PrefabSystem m_PrefabSystem;
         private readonly EntityManager m_EntityManager;
         private readonly EntityQuery m_BuildingQuery;
+        private readonly EntityQuery m_BuildingInstanceQuery;
 
         // Lazily-built, explicitly-invalidated name index backing
         // TryGetBuildingPrefab - see that method's own comment for why
@@ -43,6 +44,9 @@ namespace ZoneBuilder.CustomZones.GameAdapters
                 ComponentType.ReadOnly<SpawnableBuildingData>(),
                 ComponentType.ReadOnly<BuildingData>(),
                 ComponentType.ReadOnly<PrefabData>());
+            m_BuildingInstanceQuery = m_EntityManager.CreateEntityQuery(
+                ComponentType.ReadOnly<Building>(),
+                ComponentType.ReadOnly<PrefabRef>());
         }
 
         // Found in-game (2026-10-11): attaching a 349-entry collection
@@ -307,6 +311,118 @@ namespace ZoneBuilder.CustomZones.GameAdapters
             }
 
             return results;
+        }
+
+        // Not part of IBuildingCatalog - backs the "Clean Up Orphaned
+        // Buildings" settings button (Setting.cs). Finds every PLACED
+        // building instance (not a prefab, not a template) whose prefab
+        // reference the game's own save loader marked permanently
+        // obsolete (PrefabData.m_Index < 0 - see the decompiled
+        // Game.Serialization.ResolvePrefabsSystem, which does exactly
+        // this and nothing ever undoes it) AND whose recorded original
+        // name still matches our own internal naming scheme.
+        //
+        // Both PrefabData and GetPrefabName need the INSTANCE's PREFAB
+        // entity (PrefabRef.m_Prefab), never the instance entity itself -
+        // an earlier version of this method called both directly on
+        // `entity` (confirmed against both's decompiled source: neither
+        // one follows PrefabRef on its own), which meant TryGetComponent
+        // always failed and this always reported zero orphans, even with
+        // real white boxes present (UAT, 2026-10-29: Player.log showed 6
+        // "Unknown prefab ID" entries at the exact moment Clean Up
+        // reported "0 orphaned"). The name check is what guarantees this
+        // never touches a vanilla or another mod's building, even if
+        // that's also currently broken for unrelated reasons - only ever
+        // our own "ZoneBuilder.Zone." clones.
+        public IEnumerable<Entity> FindOrphanedZoneBuilderInstances()
+        {
+            var results = new List<Entity>();
+            var entities = m_BuildingInstanceQuery.ToEntityArray(Allocator.Temp);
+            try
+            {
+                foreach (var entity in entities)
+                {
+                    // PrefabData lives on the PREFAB entity, not the world
+                    // instance - confirmed against decompiled source
+                    // (Game.Serialization.ResolvePrefabsSystem only ever
+                    // queries/mutates PrefabData on entities matched by
+                    // GetEntityQuery(PrefabData, ...), the game's own
+                    // prefab-table entities, never on a Building instance).
+                    // Checking it on `entity` itself (2026-10-26 original
+                    // version of this method) meant TryGetComponent always
+                    // returned false, for every instance, every time -
+                    // confirmed in-game (UAT, 2026-10-29): Clean Up reported
+                    // 0 orphans even with 6 real "Unknown prefab ID"
+                    // entries sitting in Player.log at that exact moment.
+                    // GetPrefabName has the exact same instance-vs-prefab
+                    // trap (confirmed against its own decompiled source,
+                    // Game.Prefabs.PrefabSystem.GetPrefabName(Entity) - it
+                    // does TryGetComponent<PrefabData> on whatever entity
+                    // is PASSED IN, with no PrefabRef resolution of its
+                    // own) - passing the instance here would fall through
+                    // to its own `return entity.ToString()` branch, never
+                    // a real name, so the prefix check below would never
+                    // match anything either. Both checks need the same
+                    // prefabEntity, not `entity`.
+                    var prefabEntity = m_EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
+                    if (!m_EntityManager.TryGetComponent<PrefabData>(prefabEntity, out var prefabData) || prefabData.m_Index >= 0)
+                        continue;
+
+                    if (m_PrefabSystem.GetPrefabName(prefabEntity).StartsWith(CustomZoneBuilder.NamePrefix, StringComparison.Ordinal))
+                        results.Add(entity);
+                }
+
+                return results;
+            }
+            finally
+            {
+                entities.Dispose();
+            }
+        }
+
+        // Not part of IBuildingCatalog - CollectionUISystem calls this
+        // before removing a building from a collection, to warn if doing
+        // so will orphan an already-grown instance (see
+        // CustomZoneBuilder.HasPlacedInstances's own comment for why this
+        // can only warn, not fix, yet). A real, if coarse, linear scan
+        // over every placed building in the city - acceptable since it
+        // only runs once, on a user-initiated removal, not every frame.
+        public bool HasPlacedInstances(Entity buildingPrefabEntity)
+        {
+            var entities = m_BuildingInstanceQuery.ToEntityArray(Allocator.Temp);
+            try
+            {
+                // Temporary diagnostic (2026-10-26) - confirmed via
+                // CollectionUISystem's own logging that this always comes
+                // back false for a building the user confirmed visibly
+                // placed in the city. Logs enough to tell apart three
+                // distinct failure shapes: the instance query matching
+                // nothing at all (wrong component signature for a
+                // ZoneBuilder-grown building), matching plenty of real
+                // buildings but none of OUR clones specifically (naming/
+                // Entity mismatch), or genuinely matching this exact
+                // entity and this method's own comparison being wrong.
+                var zoneBuilderInstanceCount = 0;
+                foreach (var entity in entities)
+                {
+                    var prefab = m_EntityManager.GetComponentData<PrefabRef>(entity).m_Prefab;
+                    if (prefab == buildingPrefabEntity)
+                    {
+                        Mod.log.Info($"[GameBuildingCatalog] HasPlacedInstances({buildingPrefabEntity.Index}:{buildingPrefabEntity.Version}): found a match among {entities.Length} total Building+PrefabRef instance(s).");
+                        return true;
+                    }
+
+                    if (m_PrefabSystem.TryGetPrefab<BuildingPrefab>(prefab, out var prefabAsset) && prefabAsset.name.StartsWith(CustomZoneBuilder.NamePrefix, StringComparison.Ordinal))
+                        zoneBuilderInstanceCount++;
+                }
+
+                Mod.log.Info($"[GameBuildingCatalog] HasPlacedInstances({buildingPrefabEntity.Index}:{buildingPrefabEntity.Version}): no match among {entities.Length} total Building+PrefabRef instance(s), {zoneBuilderInstanceCount} of them ZoneBuilder-prefixed.");
+                return false;
+            }
+            finally
+            {
+                entities.Dispose();
+            }
         }
 
         private bool TryDescribeBuilding(Entity buildingEntity, out BuildingCandidate candidate)

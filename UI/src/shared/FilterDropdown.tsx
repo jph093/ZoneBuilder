@@ -9,7 +9,9 @@ import { DropdownTheme } from "vanilla/DropdownTheme";
 // key being changed - see vanilla/DropdownTheme.ts for why a bare partial
 // object here broke option selection entirely. Module-scope, not
 // recomputed per render - DropdownTheme's own classes never change.
-const dropdownTheme = { ...DropdownTheme, dropdownMenu: classNames(DropdownTheme.dropdownMenu, styles.menuDark) };
+// Exported so MultiFilterDropdown.tsx shares the exact same chrome
+// instead of a second, driftable copy of this composition.
+export const dropdownTheme = { ...DropdownTheme, dropdownMenu: classNames(DropdownTheme.dropdownMenu, styles.menuDark) };
 
 // cs2/ui's own ambient type declarations (UI/types/ui.d.ts) declare both a
 // plain data interface `DropdownItem<T>` (item shape) and re-export the

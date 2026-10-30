@@ -1,6 +1,6 @@
 import { bindValue, trigger, useValue } from "cs2/api";
 import { Button, Scrollable } from "cs2/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import classNames from "classnames";
 import mod from "../../../../mod.json";
 import { generateGuid } from "shared/generateGuid";
@@ -202,6 +202,37 @@ const CollectionDetail = ({ collection, buildings, onBack, onAddAssets }: Collec
     const buildingByPrefabId = new Map(buildings.map((b) => [b.prefabId, b] as const));
     const members = collection.prefabIds.map((id) => buildingByPrefabId.get(id)).filter((b): b is BuildingEntry => b !== undefined);
 
+    // Batches every remove-button click in this detail view into a single
+    // rebuild instead of one per click - this view's trash-icon button
+    // never had a "Done" step of its own to hang the existing "once per
+    // editing session, not per click" fix (OnFinishEditingCollectionAssets's
+    // own comment, 2026-10-18 user feedback) off of, so each click used to
+    // fire FinishEditingCollectionAssets immediately, rebuilding every zone
+    // referencing this collection right then - confirmed in-game (UAT,
+    // 2026-10-26): removing two buildings one after another from a
+    // 247-entry zone triggered two separate multi-second rebuilds back to
+    // back. A ref, not state - flipping it must never re-render this view,
+    // only decide what the unmount cleanup below does.
+    const hasPendingRemovalRef = useRef(false);
+
+    // Flushes on every exit path, not just the Back button - switching to
+    // another tab or closing the shell entirely unmounts this component
+    // without onBack ever running (tabs are conditionally rendered, see
+    // this file's own header comment), so relying on onBack alone would
+    // silently drop the rebuild for anyone who clicks "+ Add Assets" or a
+    // tab button instead of Back first. Runs once per mount (collection.id
+    // is stable for the lifetime of one mounted instance - a different
+    // collection means a different mount, via CollectionsTab's own
+    // selectedCollectionId-keyed render), so capturing it in this closure
+    // is safe.
+    useEffect(() => {
+        return () => {
+            if (hasPendingRemovalRef.current) {
+                trigger(mod.id, "FinishEditingCollectionAssets", collection.id);
+            }
+        };
+    }, [collection.id]);
+
     return (
         <>
             <div className={rowStyles.detailHeader}>
@@ -228,14 +259,14 @@ const CollectionDetail = ({ collection, buildings, onBack, onAddAssets }: Collec
                             src={Icons.trash}
                             tooltipLabel="Remove from collection"
                             onSelect={() => {
-                                // FinishEditingCollectionAssets right after -
-                                // that's the one place a zone rebuild actually
-                                // gets triggered now (see CollectionUISystem's
-                                // own comment), and this standalone remove has
-                                // no other "I'm done editing" signal of its own
-                                // the way the Assets-tab picker's "Done" does.
+                                // No FinishEditingCollectionAssets here - see
+                                // hasPendingRemovalRef's own comment above.
+                                // The removal itself (and its "already built"
+                                // warning, CollectionUISystem.WarnIfAlreadyBuilt)
+                                // still happens immediately; only the rebuild
+                                // is deferred.
+                                hasPendingRemovalRef.current = true;
                                 trigger(mod.id, "RemoveBuildingFromCollection", collection.id, building.prefabId);
-                                trigger(mod.id, "FinishEditingCollectionAssets", collection.id);
                             }}
                         />
                     </div>

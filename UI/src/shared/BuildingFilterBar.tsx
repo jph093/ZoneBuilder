@@ -1,4 +1,4 @@
-import { FilterDropdown } from "shared/FilterDropdown";
+import { MultiFilterDropdown } from "shared/MultiFilterDropdown";
 import { TextInput } from "shared/TextInput";
 import { TextButton } from "shared/TextButton";
 import { useBuildingFilters } from "shared/useBuildingFilters";
@@ -10,16 +10,18 @@ import styles from "shared/BuildingFilterBar.module.scss";
 // bar, not two hand-copied versions of the same markup. Search gets its
 // own row (2026-10-11, user feedback in-game: it was too constrained
 // sharing a row with five dropdowns + Clear) - the dropdowns/Clear sit
-// on a second row below it.
+// on a second row below it. Each dropdown is multi-select
+// (MultiFilterDropdown, 2026-10-26) - see useBuildingFilters's own
+// comment for why every filter is a plain string[] now.
 export const BuildingFilterBar = (filters: ReturnType<typeof useBuildingFilters>) => (
     <div className={styles.wrapper}>
         <TextInput value={filters.nameFilter} onChange={filters.setNameFilter} placeholder="Search name" className={styles.searchInput} fontSize="1.5em" />
         <div className={styles.filterRow}>
-            <FilterDropdown label="Any zone" options={filters.zoneTypes} value={filters.zoneTypeFilter} onChange={filters.setZoneTypeFilter} formatOption={formatZoneType} />
-            <FilterDropdown label="Any level" options={filters.levels} value={filters.levelFilter} onChange={filters.setLevelFilter} formatOption={(v) => `L${v}`} />
-            <FilterDropdown label="Any width" options={filters.lotWidths} value={filters.lotWidthFilter} onChange={filters.setLotWidthFilter} formatOption={(v) => `${v} wide`} />
-            <FilterDropdown label="Any depth" options={filters.lotDepths} value={filters.lotDepthFilter} onChange={filters.setLotDepthFilter} formatOption={(v) => `${v} deep`} />
-            <FilterDropdown label="Any pack" options={filters.assetPacks} value={filters.assetPackFilter} onChange={filters.setAssetPackFilter} />
+            <MultiFilterDropdown label="Any zone" options={filters.zoneTypes} selected={filters.zoneTypeFilter} onChange={filters.setZoneTypeFilter} formatOption={formatZoneType} />
+            <MultiFilterDropdown label="Any level" options={filters.levels} selected={filters.levelFilter} onChange={filters.setLevelFilter} formatOption={(v) => `L${v}`} />
+            <MultiFilterDropdown label="Any width" options={filters.lotWidths} selected={filters.lotWidthFilter} onChange={filters.setLotWidthFilter} formatOption={(v) => `${v} wide`} />
+            <MultiFilterDropdown label="Any depth" options={filters.lotDepths} selected={filters.lotDepthFilter} onChange={filters.setLotDepthFilter} formatOption={(v) => `${v} deep`} />
+            <MultiFilterDropdown label="Any pack" options={filters.assetPacks} selected={filters.assetPackFilter} onChange={filters.setAssetPackFilter} />
             <TextButton onSelect={filters.clearFilters}>Clear</TextButton>
         </div>
     </div>

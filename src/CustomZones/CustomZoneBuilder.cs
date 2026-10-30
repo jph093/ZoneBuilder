@@ -1,6 +1,7 @@
 using Colossal;
 using ZoneBuilder.Core;
 using ZoneBuilder.CustomZones.GameAdapters;
+using Game.Common;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Tools;
@@ -370,6 +371,80 @@ namespace ZoneBuilder.CustomZones
             // retired zone's buildings alone entirely - orphaned-prefab
             // accumulation is a real but minor cost (memory/clutter over
             // a long session) next to this. See DECISIONS.md.
+        }
+
+        // Not part of BuildOrRebuildIncremental's own flow - CollectionUISystem
+        // calls this before removing a building from a collection, to warn
+        // the user first. Found 2026-10-26: BuildOrRebuildIncremental only
+        // ever clones/retires what's CURRENTLY resolved from a zone's
+        // collections, with no memory of history - removing a building
+        // from every collection that supplies it means nothing recreates
+        // its clone ever again, in any FUTURE session. An already-grown
+        // instance of it survives fine for the rest of THIS session (its
+        // Entity reference is already live), but goes unresolved - a
+        // white box - the next time the game loads, since
+        // ResolvePrefabsSystem (the game's own save deserializer) runs
+        // before we get a chance to re-clone anything, and nothing ever
+        // asks it to. Properly fixing this needs a persisted record of
+        // every building ever cloned per zone, kept even after a building
+        // leaves every collection (and even after the zone itself is
+        // deleted, to not break RetireZone's own "already-placed buildings
+        // keep working" promise) - not done yet. This is the interim
+        // mitigation: warn immediately, so the user finds out before
+        // closing the game, not after.
+        //
+        // False whenever the building was never cloned for this specific
+        // zone in the first place (including: not yet built this session,
+        // or this zone never referenced it at all) - nothing to warn
+        // about then.
+        public bool HasPlacedInstances(Guid zoneDefinitionId, string templatePrefabId)
+        {
+            // Force a fresh name index (2026-10-26, confirmed via
+            // CollectionUISystem's own diagnostic logging: 17 of 19
+            // buildings checked in one UAT session failed to find their
+            // own clone prefab at all, despite having just been retired
+            // by name-prefix scan moments later in the same session).
+            // m_Catalog.m_NameIndex is only invalidated at the START of
+            // BuildOrRebuildIncremental - a building cloned DURING that
+            // same rebuild is missing from the snapshot taken at its
+            // start, and nothing refreshes it again until the NEXT
+            // rebuild begins. This method always runs BETWEEN rebuilds
+            // (from a UI trigger, never during BuildOrRebuildIncremental
+            // itself), so it can never safely trust whatever the cache
+            // happens to hold - unlike BuildOrRebuildIncremental's own
+            // once-per-call invalidation, which is safe precisely because
+            // nothing clones anything new after that call's one
+            // InvalidateNameIndex() until the call ends.
+            m_Catalog.InvalidateNameIndex();
+
+            var internalZoneName = GetInternalZoneName(zoneDefinitionId);
+            var internalBuildingName = GetInternalBuildingName(internalZoneName, templatePrefabId);
+
+            return m_Catalog.TryGetBuildingPrefab(internalBuildingName, out _, out var entity) &&
+                m_Catalog.HasPlacedInstances(entity);
+        }
+
+        // Entry point for the "Clean Up Orphaned Buildings" settings
+        // button (Setting.cs) - see
+        // GameBuildingCatalog.FindOrphanedZoneBuilderInstances for how
+        // "orphaned" is determined, and its own comment for why the name
+        // check there guarantees this only ever touches our own clones.
+        // Safe to call any time the game has an active World, with none
+        // of BuildOrRebuildIncremental's own frame-timing requirement
+        // (see CustomZoneBuildRequestSystem.Request's comment for why
+        // THAT one needs it) - deleting an already-initialized entity
+        // isn't subject to the "a runtime-cloned prefab is only visible
+        // to init systems for one frame" constraint new clones are.
+        // Tags Deleted directly - the same mechanism RetireZone uses for
+        // a zone and the game's own bulldoze tool uses for a building -
+        // rather than anything bespoke.
+        public int CleanUpOrphanedBuildings()
+        {
+            var orphaned = m_Catalog.FindOrphanedZoneBuilderInstances().ToList();
+            foreach (var entity in orphaned)
+                m_EntityManager.AddComponent<Deleted>(entity);
+
+            return orphaned.Count;
         }
 
         private bool TryGetOrCloneZone(CustomZoneDefinition definition, string internalZoneName, out ZonePrefab clonedZone, out Entity clonedZoneEntity)
