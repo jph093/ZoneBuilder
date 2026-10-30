@@ -7,14 +7,16 @@
 // legacy BaseZoneType value from a zone saved before 2026-10-13's density
 // fix, never produced by new data, so it has no place to sort into or
 // label for going forward.
-// ResidentialMixedUse/ResidentialLowRent sit right after ResidentialHigh,
-// not off at the end with Office/Industrial - they're peers of Low/Medium/
-// High (a player plans a Mixed Use or Low Rent district for a different
-// purpose entirely, the same way Low/Medium/High already differ - user
-// feedback, 2026-11-01), not an afterthought, even though Core.ZoneType's
-// own declaration order has them last (ordinal-persistence reasons that
-// don't apply to this display-only order - see that file's own comment).
-export const ZONE_TYPE_ORDER = ["ResidentialLow", "ResidentialMedium", "ResidentialHigh", "ResidentialMixedUse", "ResidentialLowRent", "CommercialLow", "CommercialHigh", "OfficeLow", "OfficeHigh", "Industrial"] as const;
+// ResidentialMixedUse/ResidentialLowRent/ResidentialRowHouse sit right
+// after ResidentialHigh, not off at the end with Office/Industrial -
+// they're peers of Low/Medium/High (a player plans a Mixed Use, Low
+// Rent, or Row Housing district for a different purpose entirely, the
+// same way Low/Medium/High already differ - user feedback, 2026-11-01,
+// reiterated for Row Housing 2026-10-30), not an afterthought, even
+// though Core.ZoneType's own declaration order has them last (ordinal-
+// persistence reasons that don't apply to this display-only order - see
+// that file's own comment).
+export const ZONE_TYPE_ORDER = ["ResidentialLow", "ResidentialMedium", "ResidentialHigh", "ResidentialMixedUse", "ResidentialLowRent", "ResidentialRowHouse", "CommercialLow", "CommercialHigh", "OfficeLow", "OfficeHigh", "Industrial"] as const;
 
 const ZONE_TYPE_LABELS: Record<string, string> = {
     ResidentialLow: "Residential Low",
@@ -22,6 +24,7 @@ const ZONE_TYPE_LABELS: Record<string, string> = {
     ResidentialHigh: "Residential High",
     ResidentialMixedUse: "Residential Mixed Use",
     ResidentialLowRent: "Residential Low Rent",
+    ResidentialRowHouse: "Residential Row Housing",
     CommercialLow: "Commercial Low",
     CommercialHigh: "Commercial High",
     OfficeLow: "Office Low",

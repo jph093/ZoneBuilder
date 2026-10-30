@@ -32,6 +32,16 @@ namespace ZoneBuilder.CustomZones.GameAdapters
         private readonly EntityQuery m_BuildingQuery;
         private readonly EntityQuery m_BuildingInstanceQuery;
 
+        // Owns the Row Housing resolution a building's home zone needs to
+        // classify through - see GameZonePrefabResolver.
+        // TryMapToCoreZoneType's own comment. A second, independent
+        // instance from whatever CustomZoneBuilder owns (it has its own)
+        // - cheap (no caching, no world-wide scan - just a per-zone name
+        // check) and keeps this class's own IBuildingCatalog contract
+        // self-contained rather than threading a shared resolver through
+        // every constructor that touches either class.
+        private readonly GameZonePrefabResolver m_ZoneResolver;
+
         // Lazily-built, explicitly-invalidated name index backing
         // TryGetBuildingPrefab - see that method's own comment for why
         // this exists. null means "needs rebuilding."
@@ -48,6 +58,7 @@ namespace ZoneBuilder.CustomZones.GameAdapters
             m_BuildingInstanceQuery = m_EntityManager.CreateEntityQuery(
                 ComponentType.ReadOnly<Building>(),
                 ComponentType.ReadOnly<PrefabRef>());
+            m_ZoneResolver = new GameZonePrefabResolver(world);
         }
 
         // Found in-game (2026-10-11): attaching a 349-entry collection
@@ -314,6 +325,40 @@ namespace ZoneBuilder.CustomZones.GameAdapters
             return results;
         }
 
+        // Not part of IBuildingCatalog - backs CustomZoneBuilder.RetireZone
+        // (removing a zone's already-placed buildings so none are left
+        // holding a reference to the now-Deleted zone prefab - see
+        // RetireZone's own comment for the crash this prevents) and the
+        // pre-delete warning count shown before that even happens. Finds
+        // every PLACED instance (Building+PrefabRef), not a prefab, whose
+        // PrefabRef points at a prefab matching the given internal name
+        // prefix - the same prefix FindBuildingsByNamePrefix already uses
+        // to find the PREFABS themselves, just resolved one level further
+        // to the real buildings standing in the city.
+        public IEnumerable<Entity> FindPlacedInstancesByNamePrefix(string namePrefix)
+        {
+            var prefabEntities = new HashSet<Entity>(FindBuildingsByNamePrefix(namePrefix).Select(b => b.Entity));
+            if (prefabEntities.Count == 0)
+                return Array.Empty<Entity>();
+
+            var results = new List<Entity>();
+            var instanceEntities = m_BuildingInstanceQuery.ToEntityArray(Allocator.Temp);
+            try
+            {
+                foreach (var instanceEntity in instanceEntities)
+                {
+                    if (prefabEntities.Contains(m_EntityManager.GetComponentData<PrefabRef>(instanceEntity).m_Prefab))
+                        results.Add(instanceEntity);
+                }
+            }
+            finally
+            {
+                instanceEntities.Dispose();
+            }
+
+            return results;
+        }
+
         // Not part of IBuildingCatalog - backs the "Clean Up Orphaned
         // Buildings" settings button (Setting.cs). Finds every PLACED
         // building instance (not a prefab, not a template) whose prefab
@@ -470,7 +515,7 @@ namespace ZoneBuilder.CustomZones.GameAdapters
                 !m_EntityManager.TryGetComponent<ZonePropertiesData>(spawnable.m_ZonePrefab, out var zoneProps))
                 return false;
 
-            if (!TryMapToCoreZoneType(zoneData, zoneProps, out var coreZoneType))
+            if (!m_ZoneResolver.TryMapToCoreZoneType(spawnable.m_ZonePrefab, zoneData, zoneProps, out var coreZoneType))
                 return false;
 
             // The EXACT vanilla zone prefab this building is authored for,
@@ -556,6 +601,18 @@ namespace ZoneBuilder.CustomZones.GameAdapters
                 case AreaType.Residential when !isOffice && zoneProps.m_IgnoreLandValue:
                     zoneType = CoreZoneType.ResidentialLowRent;
                     return true;
+                // Row Housing is NOT handled here, unlike the two cases
+                // above - it has no ZonePropertiesData field of its own,
+                // and no other signal on the zone's OWN data distinguishes
+                // it from plain Medium Density either (two attempts tried
+                // and ruled out in-game 2026-10-30 - see
+                // GameZonePrefabResolver.TryMapToCoreZoneType's own
+                // comment for the full history). That method is what
+                // actually promotes this method's ResidentialMedium result
+                // to ResidentialRowHouse afterward, by scanning the zone's
+                // actual building roster (the same technique the "Find It"
+                // mod uses) - this method alone can never produce
+                // ResidentialRowHouse.
                 case AreaType.Residential when !isOffice && density == ZoneDensity.Low:
                     zoneType = CoreZoneType.ResidentialLow;
                     return true;

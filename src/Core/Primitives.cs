@@ -43,6 +43,43 @@
         // coarse density buckets".
         ResidentialMixedUse,
         ResidentialLowRent,
+
+        // Same "peer of Low/Medium/High, not a variant" reasoning as
+        // Mixed Use/Low Rent above, appended the same way for the same
+        // ordinal-persistence reason - user feedback (2026-10-30): row
+        // housing was missed when those two were split out, even though
+        // it's the identical category of gap. Confirmed real and
+        // distinct via the CS2 wiki ("Medium density row housing
+        // consists of narrow wall-to-wall buildings") and Paradox's own
+        // feature page, which lists it as its own residential zone type
+        // alongside Mixed Use/Low Rent/plain density - not a guess, but
+        // unlike those two, no dedicated ZonePropertiesData field exists
+        // for it, and - unlike those two - no OTHER signal on the zone's
+        // OWN data distinguishes it from plain Medium Density either.
+        // Two attempts tried and ruled out in-game, same day:
+        // ZoneData.m_ZoneFlags.SupportNarrow read directly (it's set at
+        // RUNTIME by Game.Prefabs.BuildingInitializeSystem on whichever
+        // zone a narrow building happens to register under - load-order/
+        // install-dependent, not stable identity); and that same flag
+        // promoted across every zone sharing a UIObjectData.m_Group
+        // (confirmed, via this project's own prior Platter-compatibility
+        // diagnostic in DECISIONS.md, to group at a COARSE level: our own
+        // cloned zone's group is literally named "ZonesResidential," one
+        // bucket for every residential density tier, not one per
+        // zoning-tool button - so promoting a whole group swallowed
+        // Low/Medium/High entirely into Row Housing).
+        //
+        // Settled by decompiling the popular "Find It" mod (Paradox Mods
+        // id 77240, 755k+ subscribers, which has a working Row Houses
+        // filter) to see how a mod that actually gets this right does it:
+        // FindIt.Systems.PrefabIndexingSystem.IndexZones scans every
+        // building actually registered to a zone and checks whether ALL
+        // of them have a lot width of 2 or less - not whether the zone
+        // itself carries any flag. That "ALL, not ANY" over the zone's
+        // real building roster is what SupportNarrow lacked. See
+        // GameZonePrefabResolver.TryMapToCoreZoneType's own comment for
+        // the full mechanism and history.
+        ResidentialRowHouse,
     }
 
     // Which vanilla theme a custom zone's simulation template is cloned
