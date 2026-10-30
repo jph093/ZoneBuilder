@@ -5,7 +5,9 @@ A Cities: Skylines II mod for controlling **which buildings grow where**.
 > Status: Custom Zones is implemented and confirmed working in-game -
 > Collections/Zones/Assets management UI, zone cloning, building
 > leveling, asset thumbnails. District Themes is shelved, an empty stub.
-> See [ARCHITECTURE.md](ARCHITECTURE.md) for how it's built.
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for how it's built, and
+> [PUBLISHING.md](PUBLISHING.md) for how to ship a new version to
+> Paradox Mods.
 
 ## Features
 
