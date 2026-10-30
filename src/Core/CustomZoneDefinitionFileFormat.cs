@@ -48,6 +48,14 @@ namespace ZoneBuilder.Core
             // reinterpreting them as NorthAmerica just because that
             // happens to be ZoneRegion's first declared value.
             public ZoneRegion Region { get; set; } = ZoneRegion.Europe;
+            // Null by default (same as the C# property it mirrors) for a
+            // file saved before this field existed - CustomZoneBuilder
+            // treats that as "not backfilled yet" and resolves/persists a
+            // real value the next time this zone is built. No schema
+            // bump/migration needed, same precedent as Region above: a
+            // purely additive field Newtonsoft just leaves at its DTO
+            // default when absent from the JSON.
+            public string VanillaZoneName { get; set; }
             public List<Guid> CollectionIds { get; set; } = new List<Guid>();
         }
 
@@ -59,13 +67,14 @@ namespace ZoneBuilder.Core
                 Name = definition.Name,
                 BaseZoneType = definition.BaseZoneType,
                 Region = definition.Region,
+                VanillaZoneName = definition.VanillaZoneName,
                 CollectionIds = definition.CollectionIds.ToList(),
             };
         }
 
         public static CustomZoneDefinition FromDto(CustomZoneDefinitionDto dto)
         {
-            var definition = new CustomZoneDefinition(dto.Id, dto.Name, dto.BaseZoneType, dto.Region);
+            var definition = new CustomZoneDefinition(dto.Id, dto.Name, dto.BaseZoneType, dto.Region, dto.VanillaZoneName);
             foreach (var collectionId in dto.CollectionIds ?? Enumerable.Empty<Guid>())
                 definition.AddCollection(collectionId);
             return definition;

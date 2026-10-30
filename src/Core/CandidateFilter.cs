@@ -72,6 +72,17 @@ namespace ZoneBuilder.Core
         // Width must match the lot exactly (buildings face the street at a
         // fixed width); depth only needs to fit. Unverified against actual
         // game lot-matching rules - see DECISIONS.md.
+        //
+        // Plain CoreZoneType comparison - a VanillaZoneName (exact vanilla
+        // zone-prefab identity) variant of this was tried and reverted
+        // the same day (confirmed in-game, a heavily-modded playset): a
+        // Collection deliberately mixes buildings from many different
+        // asset packs under one coarse category (see Core.Collection's
+        // own comment), and each pack typically registers its own
+        // distinct vanilla zone prefab for "the same" category, so exact-
+        // identity matching rejected nearly everything cross-pack. See
+        // CustomZoneBuilder.IsCompatible's own comment for the full
+        // writeup.
         private static bool Matches(BuildingCandidate candidate, LotQuery lot)
         {
             return candidate.ZoneType == lot.ZoneType

@@ -2,6 +2,7 @@
 using ZoneBuilder.Core;
 using ZoneBuilder.CustomZones;
 using Game.Buildings;
+using Game.Economy;
 using Game.Prefabs;
 using Game.Zones;
 using System;
@@ -472,11 +473,27 @@ namespace ZoneBuilder.CustomZones.GameAdapters
             if (!TryMapToCoreZoneType(zoneData, zoneProps, out var coreZoneType))
                 return false;
 
+            // The EXACT vanilla zone prefab this building is authored for,
+            // not just the coarse AreaType+density bucket TryMapToCoreZoneType
+            // produces - see BuildingCandidate.VanillaZoneName's own
+            // comment for why the bucket alone can't tell apart distinct,
+            // non-interchangeable vanilla zones (e.g. plain Medium Density
+            // Housing vs. Mixed Housing, confirmed separate via the CS2
+            // wiki's own zone table and Platter's exact-identity zone
+            // cache - DECISIONS.md "Exact vanilla zone identity, not
+            // coarse density buckets"). Null if the zone prefab's own name
+            // can't be resolved - callers fall back to the coarse bucket
+            // in that case, same as for any legacy data with no value yet.
+            var vanillaZoneName = m_PrefabSystem.TryGetPrefab<ZonePrefab>(spawnable.m_ZonePrefab, out var zonePrefab)
+                ? zonePrefab.name
+                : null;
+
             candidate = new BuildingCandidate(
                 prefab.name,
                 coreZoneType,
                 spawnable.m_Level,
-                new LotSize(buildingData.m_LotSize.x, buildingData.m_LotSize.y));
+                new LotSize(buildingData.m_LotSize.x, buildingData.m_LotSize.y),
+                vanillaZoneName: vanillaZoneName);
             return true;
         }
 
@@ -518,6 +535,27 @@ namespace ZoneBuilder.CustomZones.GameAdapters
 
             switch (zoneData.m_AreaType)
             {
+                // Checked before density - Mixed Use and Low Rent are
+                // PEERS of Low/Medium/High, not variants within one of
+                // them (user feedback, 2026-11-01 - see Core.ZoneType's
+                // own comment). Both have a dedicated, zone-level
+                // ZonePropertiesData field for exactly this, confirmed via
+                // decompiled source rather than inferred from building
+                // data: m_AllowedSold (same field BuildingPropertyData
+                // uses to mean "this building has commercial space," here
+                // on the ZONE itself - i.e. "buildings grown here get
+                // commercial space") for Mixed Use, and m_IgnoreLandValue
+                // (Game.Prefabs.ZoneProperties's own authoring comment:
+                // "The rent price of this zone type won't be affected by
+                // land value, for example low rent residential building")
+                // for Low Rent. Neither needs a building scan - both are
+                // zone-authored template data, same as density itself.
+                case AreaType.Residential when !isOffice && zoneProps.m_AllowedSold != Resource.NoResource:
+                    zoneType = CoreZoneType.ResidentialMixedUse;
+                    return true;
+                case AreaType.Residential when !isOffice && zoneProps.m_IgnoreLandValue:
+                    zoneType = CoreZoneType.ResidentialLowRent;
+                    return true;
                 case AreaType.Residential when !isOffice && density == ZoneDensity.Low:
                     zoneType = CoreZoneType.ResidentialLow;
                     return true;

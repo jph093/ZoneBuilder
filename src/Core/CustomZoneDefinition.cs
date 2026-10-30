@@ -24,20 +24,40 @@ namespace ZoneBuilder.Core
         // first, which was observed to always be an EU-themed one).
         public ZoneRegion Region { get; set; }
 
+        // The exact vanilla zone prefab (its own registered name, e.g.
+        // "NA Residential Medium Density" vs a distinct "NA Mixed
+        // Housing") this zone's simulation template was actually cloned
+        // from - set once, at whichever build first resolves it, and
+        // never re-decided after (see CustomZoneBuilder.TryGetOrCloneZone's
+        // own comment). BaseZoneType alone is too coarse to be that
+        // identity: it only captures AreaType + a 3-tier density bucket
+        // (GameBuildingCatalog.TryMapToCoreZoneType), and more than one
+        // distinct, non-interchangeable vanilla zone prefab can share one
+        // bucket (confirmed via the CS2 wiki's own zone table and
+        // Platter's exact-identity zone cache - see DECISIONS.md "Exact
+        // vanilla zone identity, not coarse density buckets"). Null for
+        // every zone saved before this field existed - CustomZoneBuilder
+        // backfills it the first time such a zone goes through template
+        // resolution again, exactly once, so it becomes stable from then
+        // on instead of being silently re-decided on every load the way
+        // BaseZoneType's own bucket lookup always was.
+        public string VanillaZoneName { get; set; }
+
         private readonly List<Guid> m_CollectionIds = new List<Guid>();
         public IReadOnlyList<Guid> CollectionIds => m_CollectionIds;
 
-        public CustomZoneDefinition(string name, ZoneType baseZoneType, ZoneRegion region = ZoneRegion.Europe)
-            : this(Guid.NewGuid(), name, baseZoneType, region)
+        public CustomZoneDefinition(string name, ZoneType baseZoneType, ZoneRegion region = ZoneRegion.Europe, string vanillaZoneName = null)
+            : this(Guid.NewGuid(), name, baseZoneType, region, vanillaZoneName)
         {
         }
 
-        public CustomZoneDefinition(Guid id, string name, ZoneType baseZoneType, ZoneRegion region = ZoneRegion.Europe)
+        public CustomZoneDefinition(Guid id, string name, ZoneType baseZoneType, ZoneRegion region = ZoneRegion.Europe, string vanillaZoneName = null)
         {
             Id = id;
             Name = name;
             BaseZoneType = baseZoneType;
             Region = region;
+            VanillaZoneName = vanillaZoneName;
         }
 
         public void AddCollection(Guid collectionId)
@@ -59,7 +79,7 @@ namespace ZoneBuilder.Core
         // see Collection.Clone's identical comment for the full reasoning.
         public CustomZoneDefinition Clone()
         {
-            var clone = new CustomZoneDefinition(Id, Name, BaseZoneType, Region);
+            var clone = new CustomZoneDefinition(Id, Name, BaseZoneType, Region, VanillaZoneName);
             foreach (var collectionId in m_CollectionIds)
                 clone.AddCollection(collectionId);
             return clone;

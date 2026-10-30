@@ -189,7 +189,7 @@ namespace ZoneBuilder.CustomZones
                             // many candidates, and this is the expected,
                             // common case for a collection shared across
                             // zones of different types.
-                            if (candidate.ZoneType != definition.BaseZoneType)
+                            if (!IsCompatible(candidate, definition))
                                 continue;
 
                             if (resolvedPrefabIds.Add(candidate.PrefabId) &&
@@ -215,7 +215,7 @@ namespace ZoneBuilder.CustomZones
                         // confirmed by reading the actual collections.json/
                         // customZones.json data, not guessed. See
                         // DECISIONS.md.
-                        if (explicitCandidate.ZoneType != definition.BaseZoneType)
+                        if (!IsCompatible(explicitCandidate, definition))
                         {
                             Mod.log.Warn($"[CustomZoneBuilder] Skipping '{explicitEntry.PrefabId}' for zone '{definition.Name}' - its zone type ({explicitCandidate.ZoneType}) doesn't match the zone's base type ({definition.BaseZoneType}).");
                             break;
@@ -272,6 +272,33 @@ namespace ZoneBuilder.CustomZones
 
             Mod.log.Info($"[CustomZoneBuilder] Built/rebuilt zone '{definition.Name}': {clonedCount} newly cloned, {resolvedPrefabIds.Count} total offered, {retiredCount} retired.");
             yield return new ZoneBuildProgress(definition.Name, entries.Count + buildingsToRetire.Count, entries.Count + buildingsToRetire.Count);
+        }
+
+        // Whether a resolved building candidate actually belongs in this
+        // zone. REVERTED to a pure CoreZoneType (coarse bucket) comparison
+        // (2026-10-29) - the VanillaZoneName exact-identity version this
+        // replaced broke cross-asset-pack collections outright: a
+        // collection is deliberately "a zone-type-agnostic bag" mixing
+        // buildings from many different asset packs under one category
+        // (see Core.Collection's own comment), and each pack typically
+        // registers its OWN distinct vanilla zone prefab for "the same"
+        // category (confirmed in-game: a heavily-modded playset's
+        // "Suburbs" zone, pinned to one specific vanilla Residential Low
+        // prefab, rejected every single building from every OTHER pack
+        // with "its zone type (ResidentialLow) doesn't match the zone's
+        // base type (ResidentialLow)" - the exact same coarse type,
+        // correctly equal, failing anyway because the exact names
+        // differed). That's not the "non-interchangeable vanilla zone"
+        // case VanillaZoneName was built for (Mixed Use/Low Rent, now
+        // their own CoreZoneType peers - see Core.ZoneType's own comment)
+        // - it's the mod's own core cross-pack-mixing feature. VanillaZoneName
+        // itself stays on CustomZoneDefinition/BuildingCandidate (still
+        // useful for template-selection consistency - see
+        // CustomZoneBuilder.TryGetOrCloneZone), it's just no longer used
+        // to gate which buildings may join a zone.
+        private static bool IsCompatible(BuildingCandidate candidate, CustomZoneDefinition definition)
+        {
+            return candidate.ZoneType == definition.BaseZoneType;
         }
 
         // Sixth attempt (2026-10-11) - five prior mechanisms (active=false,
@@ -452,7 +479,31 @@ namespace ZoneBuilder.CustomZones
             if (m_ZoneResolver.TryFindByName(internalZoneName, out clonedZone, out clonedZoneEntity))
                 return true; // Already built in an earlier request - rebuilding in place.
 
-            if (!m_ZoneResolver.TryFindVanillaZone(definition.BaseZoneType, definition.Region, out var baseZone))
+            ZonePrefab baseZone;
+
+            // VanillaZoneName (once set) pins the EXACT vanilla zone prefab
+            // this definition's template is cloned from, so every later
+            // build resolves the same one by name instead of re-deciding
+            // it via the coarse BaseZoneType bucket (TryFindVanillaZone),
+            // which can genuinely match more than one non-interchangeable
+            // vanilla zone - see CustomZoneDefinition.VanillaZoneName's own
+            // comment. Empty for a zone saved before this field existed,
+            // or a brand-new zone the UI hasn't been asked to pin yet -
+            // both fall back to the old coarse lookup, then immediately
+            // persist whatever it resolves to so this only ever happens
+            // once per definition, not on every future rebuild.
+            if (!string.IsNullOrEmpty(definition.VanillaZoneName) &&
+                m_ZoneResolver.TryFindByName(definition.VanillaZoneName, out baseZone, out _))
+            {
+                // Found by exact name - nothing to backfill.
+            }
+            else if (m_ZoneResolver.TryFindVanillaZone(definition.BaseZoneType, definition.Region, out baseZone))
+            {
+                definition.VanillaZoneName = baseZone.name;
+                Mod.CustomZoneDefinitionLibrary.Save(definition);
+                Mod.log.Info($"[CustomZoneBuilder] Pinned '{definition.Name}' to vanilla zone '{baseZone.name}' for base type '{definition.BaseZoneType}'.");
+            }
+            else
             {
                 Mod.log.Warn($"[CustomZoneBuilder] No vanilla zone found for base type '{definition.BaseZoneType}' - cannot build '{definition.Name}'.");
                 clonedZone = null;

@@ -34,24 +34,27 @@ namespace ZoneBuilder.CustomZones.GameAdapters
         // Picks a registered vanilla zone matching the given category AND
         // region - region is purely which UIGroupPrefab the clone displays
         // under (see Core.ZoneRegion), not a different simulation profile.
-        // Prefers a themed match (a candidate carrying a ThemeObject whose
-        // m_Theme.assetPrefix matches the requested region - confirmed
-        // real via live reflection against Game.dll: ThemeObject is a
-        // ComponentBase-style prefab-authoring component, same pattern as
-        // UIObject, accessed the same way via PrefabBase.TryGet<T>(), not
-        // an ECS IComponentData on the entity), falling back to the first
-        // match of any region if no themed candidate exists for this
-        // category - same "any one will do" behavior this always had
-        // before region selection existed, kept as a safety net rather
-        // than failing zone creation outright if a themed variant turns
-        // out not to exist for some category.
+        // Only ever picks a GENUINELY VANILLA zone - never a mod/asset
+        // pack's own zone prefab, even one sharing the same category (user
+        // feedback, 2026-11-01: silently landing on a third-party mod's
+        // zone is worse than failing loudly - see GetRank's own comment
+        // for how "vanilla" is determined). If no vanilla zone matches
+        // this category AND region at all, this simply fails
+        // (TryGetOrCloneZone logs "No vanilla zone found..." and the zone
+        // isn't built) - every one of the 10 standard categories
+        // (Residential Low/Medium/High/Mixed Use/Low Rent, Commercial
+        // Low/High, Office Low/High, Industrial) is core base-game
+        // functionality, not DLC-gated, so this should never actually
+        // happen for real vanilla content; if it does, that's a real
+        // problem worth surfacing, not papering over with a substitute.
         public bool TryFindVanillaZone(CoreZoneType zoneType, Core.ZoneRegion region, out ZonePrefab prefab)
         {
             var entities = m_ZoneQuery.ToEntityArray(Allocator.Temp);
             try
             {
-                ZonePrefab fallback = null;
-                var assetPrefix = region == Core.ZoneRegion.NorthAmerica ? "NA" : "EU";
+                var assetPrefix = GetAssetPrefix(region);
+                ZonePrefab best = null;
+                var bestRank = -1;
 
                 foreach (var entity in entities)
                 {
@@ -65,25 +68,54 @@ namespace ZoneBuilder.CustomZones.GameAdapters
                     if (!m_PrefabSystem.TryGetPrefab<ZonePrefab>(entity, out var candidate))
                         continue;
 
-                    if (fallback == null)
-                        fallback = candidate;
+                    var rank = GetRank(entity, candidate, assetPrefix);
+                    if (rank < 0)
+                        continue;
 
-                    if (candidate.TryGet<ThemeObject>(out var themeObject) &&
-                        themeObject.m_Theme != null &&
-                        string.Equals(themeObject.m_Theme.assetPrefix, assetPrefix, System.StringComparison.OrdinalIgnoreCase))
+                    if (rank > bestRank)
                     {
-                        prefab = candidate;
-                        return true;
+                        best = candidate;
+                        bestRank = rank;
+                        if (rank == 1)
+                            break; // Can't do better than a themed vanilla match.
                     }
                 }
 
-                prefab = fallback;
-                return fallback != null;
+                prefab = best;
+                return best != null;
             }
             finally
             {
                 entities.Dispose();
             }
+        }
+
+        private static string GetAssetPrefix(Core.ZoneRegion region) => region == Core.ZoneRegion.NorthAmerica ? "NA" : "EU";
+
+        // Ranking helper for TryFindVanillaZone. Negative means "never a
+        // candidate" - a mod/asset pack's own
+        // zone prefab (confirmed via decompiled Game.UI.InGame.
+        // ToolbarUISystem: it uses this exact "has no AssetPackElement
+        // buffer at all" check for its own "vanilla only" zoning-tool
+        // filter, and every mod/DLC/Content Creator Pack registers at
+        // least one AssetPackElement - same signal GameBuildingCatalog.
+        // ResolveAssetPackIds already relies on for buildings). Among
+        // genuinely vanilla candidates: 1 for a themed match (ThemeObject.
+        // m_Theme.assetPrefix matching the requested region's "NA"/"EU" -
+        // confirmed real via live reflection against Game.dll), 0
+        // otherwise (vanilla but the other theme - covers a category that
+        // only ships one vanilla variant).
+        private int GetRank(Entity entity, ZonePrefab candidate, string assetPrefix)
+        {
+            var isVanilla = !m_EntityManager.TryGetBuffer<AssetPackElement>(entity, true, out var packs) || packs.Length == 0;
+            if (!isVanilla)
+                return -1;
+
+            var isThemed = candidate.TryGet<ThemeObject>(out var themeObject) &&
+                themeObject.m_Theme != null &&
+                string.Equals(themeObject.m_Theme.assetPrefix, assetPrefix, System.StringComparison.OrdinalIgnoreCase);
+
+            return isThemed ? 1 : 0;
         }
 
         // Exact-name lookup, same technique as GameBuildingCatalog.TryGetBuildingPrefab

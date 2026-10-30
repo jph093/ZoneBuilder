@@ -24,6 +24,25 @@
         Industrial,
         OfficeLow,
         OfficeHigh,
+
+        // Appended, not inserted alongside ResidentialHigh where a reader
+        // would expect them - same ordinal-persistence reasoning as
+        // OfficeLow/OfficeHigh above. These are PEERS of ResidentialLow/
+        // Medium/High, not variants of one of them - user feedback
+        // (2026-11-01): a player plans a Mixed Use or Low Rent district
+        // for an entirely different purpose than a plain density choice,
+        // the same way Low/Medium/High already serve different purposes,
+        // and expects to pick it directly rather than have the mod
+        // silently decide it on their behalf within some other category.
+        // Confirmed real, distinct vanilla categories (not density tiers
+        // of ResidentialMedium/High) via the CS2 wiki's own zone table
+        // (different household-per-tile stats from either) and two
+        // dedicated ZonePropertiesData fields that exist for exactly this
+        // (see GameBuildingCatalog.TryMapToCoreZoneType's own comment) -
+        // not a guess. See DECISIONS.md "Exact vanilla zone identity, not
+        // coarse density buckets".
+        ResidentialMixedUse,
+        ResidentialLowRent,
     }
 
     // Which vanilla theme a custom zone's simulation template is cloned

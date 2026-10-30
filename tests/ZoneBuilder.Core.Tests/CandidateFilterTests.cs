@@ -101,6 +101,47 @@ namespace ZoneBuilder.Core.Tests
             Assert.Equal(new[] { "vanilla-house" }, result.Select(c => c.PrefabId));
         }
 
+        // Regression guard (2026-10-29): a VanillaZoneName (exact vanilla
+        // zone-prefab identity) based version of Matches was tried and
+        // reverted the same day - confirmed in-game on a heavily-modded
+        // playset, it rejected nearly every cross-pack building, since a
+        // Collection deliberately mixes buildings from many different
+        // asset packs under one coarse category (see Core.Collection's
+        // own comment) and each pack typically registers its own distinct
+        // vanilla zone prefab for "the same" category. Two candidates
+        // here carry DIFFERENT VanillaZoneName values (simulating two
+        // different asset packs) but the SAME ZoneType - both must still
+        // be included, matching purely on the coarse category.
+        [Fact]
+        public void IncludesCrossPackBuildingsWithDifferentVanillaZoneNames()
+        {
+            var catalog = new FakeBuildingCatalog(new[]
+            {
+                new BuildingCandidate("packAHouse", ZoneType.ResidentialMedium, 1, TwoByFour, vanillaZoneName: "Pack A Medium Density"),
+                new BuildingCandidate("packBHouse", ZoneType.ResidentialMedium, 1, TwoByFour, vanillaZoneName: "Pack B Medium Density"),
+            });
+            var collection = new Collection("Test");
+            collection.Add(new VanillaSelectorEntry(ZoneType.ResidentialMedium));
+            var lot = new LotQuery(ZoneType.ResidentialMedium, TwoByFour);
+
+            var result = CandidateFilter.GetEligibleBuildings(lot, new[] { collection }, catalog, FallbackPolicy.None);
+
+            Assert.Equal(new[] { "packAHouse", "packBHouse" }, result.Select(c => c.PrefabId));
+        }
+
+        [Fact]
+        public void IncludesAdoptedAssetsMatchingByZoneTypeOnly()
+        {
+            var catalog = new FakeBuildingCatalog(System.Array.Empty<BuildingCandidate>());
+            var collection = new Collection("Test");
+            collection.Add(new AdoptedAssetEntry("adopted-house", new AdoptedAssetSettings(ZoneType.ResidentialMedium, 1, TwoByFour)));
+            var lot = new LotQuery(ZoneType.ResidentialMedium, TwoByFour);
+
+            var result = CandidateFilter.GetEligibleBuildings(lot, new[] { collection }, catalog, FallbackPolicy.None);
+
+            Assert.Equal(new[] { "adopted-house" }, result.Select(c => c.PrefabId));
+        }
+
         [Fact]
         public void VanillaSelectorCanFilterByAssetPack()
         {
